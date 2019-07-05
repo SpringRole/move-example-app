@@ -1,0 +1,208 @@
+modules:
+
+module SpringTokenRoles {
+
+    resource Owner { }
+
+    resource T {
+        minter: bool,
+        blacklisted: bool,
+    }
+
+    public publish() {
+        let sender: address;
+        sender = get_txn_sender();
+
+        if (move(sender) == ${SpringToken_address}) {
+            Self.grant_owner_role();
+        }
+
+        // Publish a new role with no permissions.
+        move_to_sender<T>(T{ minter: false, blacklisted: false });
+
+        return;    
+    }
+
+    // Internal function that grants owner role
+    grant_owner_role() {
+        move_to_sender<Owner>(Owner {});
+        return;
+    }
+
+    // Grants minter role to receiver, if sender is owner.
+    public grant_minter_role(receiver: address, owner_role: &R#Self.Owner) {
+        let role_ref: &mut R#Self.T;
+
+        release(move(owner_role));
+
+        role_ref = borrow_global<T>(move(receiver));
+        *(&mut move(role_ref).minter) = true;
+
+        return;
+    }
+
+    // Grants blacklist role to receiver, but can only succeed if sender owns the owner role.
+    public grant_blacklisted_role(receiver: address, owner_role: &R#Self.Owner) {
+        let role_ref: &mut R#Self.T;
+
+        release(move(owner_role));
+
+        role_ref = borrow_global<T>(move(receiver));
+        *(&mut move(role_ref).blacklisted) = true;
+
+        return;
+    }
+
+    // This returns an immutable reference to the owner role if it exists.
+    // Is used by the owner to show ownership to privileged functions.
+    // Reverts if owner role does not exist.
+    public borrow_owner_role(): &R#Self.Owner {
+        let sender: address;
+        let owner_role_ref: &mut R#Self.Owner;
+        let owner_role_immut_ref: &R#Self.Owner;
+
+        sender = get_txn_sender();
+        owner_role_ref = borrow_global<Owner>(move(sender));
+        owner_role_immut_ref = freeze(move(owner_role_ref));
+
+        return move(owner_role_immut_ref);
+    }
+
+    // This returns an immutable reference to the general role if it exists.
+    // Should be used by every account to prove their roles.
+    // Reverts if role does not exist.
+    public borrow_role(): &R#Self.T {
+        let sender: address;
+        let role_ref: &mut R#Self.T;
+        let role_immut_ref: &R#Self.T;
+
+        sender = get_txn_sender();
+        role_ref = borrow_global<T>(move(sender));
+        role_immut_ref = freeze(move(role_ref));
+
+        return move(role_immut_ref);
+    }
+
+    // Return whether the role allows minting.
+    public is_minter(role: &R#Self.T): bool {
+        let is_minter: bool;
+        is_minter = *(&move(role).minter);
+        return move(is_minter);
+    }
+
+    // Return true the role is not blacklisted.
+    public is_not_blacklisted(role: &R#Self.T): bool {
+        let is_blacklisted: bool;
+        is_blacklisted = *(&move(role).blacklisted);
+        return !move(is_blacklisted);
+    }
+
+    // Reverts if role does not allow minting
+    public require_minter(role: &R#Self.T) {
+        let is_minter: bool;
+        is_minter = Self.is_minter(move(role));
+        assert(move(is_minter), 0);
+        return;
+    }
+
+    // Reverts if role is blacklisted
+    public require_not_blacklisted(role: &R#Self.T) {
+        let is_not_blacklisted: bool;
+        is_not_blacklisted = Self.is_not_blacklisted(move(role));
+        assert(move(is_not_blacklisted), 0);
+        return;
+    }
+}
+
+
+module SpringToken {
+    // module for SpringToken.
+    // will import SprinTokenRoles.
+
+    import 0x0.LibraAccount;
+    import 0x0.LibraCoin;
+    import Transaction.SpringTokenRoles;
+
+    // stors an account's total balance.
+    resource T {
+        value: u64,
+    }
+
+    // Publishes an initial zero SpringToken to the sender.
+    // Should be called once before using this module.
+    public publish() {
+        move_to_sender<T>(T{ value: 0 });
+        return;
+    }
+
+    // Mint new SpringTokens.
+    // Reverts if not a minter role.
+    public mint(value: u64, role: &R#SpringTokenRoles.T): R#Self.T {
+        SpringTokenRoles.require_minter(move(role));
+        return T{value: move(value)};
+    }
+
+    // Returns an account's SpringToken balance.
+    // Reverts if an initial SpringToken hasn't been published.
+    public balance(): u64 {
+        let sender: address;
+        let token_ref: &mut R#Self.T;
+        let token_value: u64;
+
+        sender = get_txn_sender();
+        token_ref = borrow_global<T>(move(sender));
+        token_value = *(&move(token_ref).value);
+
+        return move(token_value);
+    }
+
+    // Reverts if user is blacklisted.
+    public deposit(payee: address, to_deposit: R#Self.T, role: &R#SpringTokenRoles.T) {
+        let payee_token_ref: &mut R#Self.T;
+        let payee_token_value: u64;
+        let to_deposit_value: u64;
+
+        SpringTokenRoles.require_not_blacklisted(move(role));
+
+        payee_token_ref = borrow_global<T>(move(payee));
+        payee_token_value = *(&copy(payee_token_ref).value);
+
+        // Unpack and destroy to_deposit tokens
+        T{ value: to_deposit_value } = move(to_deposit);
+
+        // Increase the payees balance with the destroyed token amount
+        *(&mut move(payee_token_ref).value) = move(payee_token_value) + move(to_deposit_value);
+
+        return;
+    }
+
+    // Withdraw an amount of tokens of the sender and return it.
+    public withdraw(amount: u64, role: &R#SpringTokenRoles.T): R#Self.T {
+        let sender: address;
+        let sender_token_ref: &mut R#Self.T;
+        let value: u64;
+
+        SpringTokenRoles.require_not_blacklisted(move(role));
+
+        sender = get_txn_sender();
+        sender_token_ref = borrow_global<T>(move(sender));
+        value = *(&copy(sender_token_ref).value);
+
+        assert(copy(value) >= copy(amount), 1);
+
+        *(&mut move(sender_token_ref).value) = move(value) - copy(amount);
+        return T{ value: move(amount) };
+    }
+
+    public pay_from_sender(payee: address, amount: u64) {
+         let to_pay: R#Self.T;
+         let role: &R#SpringTokenRoles.T;
+
+         role = SpringTokenRoles.borrow_role();
+         to_pay = Self.withdraw(move(amount), copy(role));
+         Self.deposit(move(payee), move(to_pay), move(role));
+         return;
+    }
+
+   
+}
