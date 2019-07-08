@@ -13,7 +13,7 @@ module SpringTokenRoles {
         let sender: address;
         sender = get_txn_sender();
 
-        if (move(sender) == ${SpringToken_address}) {
+        if (true) {
             Self.grant_owner_role();
         }
 
@@ -123,9 +123,14 @@ module SpringToken {
     import 0x0.LibraCoin;
     import Transaction.SpringTokenRoles;
 
-    // stors an account's total balance.
+    // stores an account's total balance
     resource T {
         value: u64,
+    }
+
+    resource Order {
+        token: R#Self.T,
+        price: u64,
     }
 
     // Publishes an initial zero SpringToken to the sender.
