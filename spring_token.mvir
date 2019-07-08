@@ -204,5 +204,53 @@ module SpringToken {
          return;
     }
 
-   
+    public sell_token(token_amount: u64, price: u64) {
+        let token: R#Self.T;
+        let role: &R#SpringTokenRoles.T;
+        role = SpringTokenRoles.borrow_role();
+        token = Self.withdraw(move(token_amount), move(role));
+        move_to_sender<Order>(Order { token: move(token), price: move(price)});
+        return;
+    }
+
+    public buy_token(order_address: address) {
+        let sender: address;
+        let order: R#Self.Order;
+        let token: R#Self.T;
+        let price: u64;
+        let role: &R#SpringTokenRoles.T;
+
+        sender = get_txn_sender();
+        role = SpringTokenRoles.borrow_role();
+
+        order = move_from<Order>(copy(order_address));
+        Order { token:token, price:price } = move(order);
+
+        LibraAccount.pay_from_sender(move(order_address), move(price));
+
+        Self.deposit(move(sender), move(token), move(role));
+        return;
+    }
+}
+
+script:
+
+import Transaction.SpringTokenRoles;
+import Transaction.SpringToken;
+
+main() {
+    let sender: address;
+    let owner_role: &R#SpringTokenRoles.Owner;
+    let role: &R#SpringTokenRoles.T;
+
+    sender = get_txn_sender();
+
+    SpringTokenRoles.publish();
+
+    owner_role = SpringTokenRoles.borrow_owner_role();
+
+    SpringTokenRoles.grant_minter_role(copy(sender), move(owner_role));
+
+    SpringToken.publish();
+    return;
 }
