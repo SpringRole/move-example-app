@@ -12,11 +12,9 @@ module SpringTokenRoles {
     public publish() {
         let sender: address;
         sender = get_txn_sender();
-
         if (true) {
             Self.grant_owner_role();
         }
-
         // Publish a new role with no permissions.
         move_to_sender<T>(T{ minter: false, blacklisted: false });
 
@@ -32,24 +30,18 @@ module SpringTokenRoles {
     // Grants minter role to receiver, if sender is owner.
     public grant_minter_role(receiver: address, owner_role: &R#Self.Owner) {
         let role_ref: &mut R#Self.T;
-
         release(move(owner_role));
-
         role_ref = borrow_global<T>(move(receiver));
         *(&mut move(role_ref).minter) = true;
-
         return;
     }
 
     // Grants blacklist role to receiver, but can only succeed if sender owns the owner role.
     public grant_blacklisted_role(receiver: address, owner_role: &R#Self.Owner) {
         let role_ref: &mut R#Self.T;
-
         release(move(owner_role));
-
         role_ref = borrow_global<T>(move(receiver));
         *(&mut move(role_ref).blacklisted) = true;
-
         return;
     }
 
@@ -60,11 +52,9 @@ module SpringTokenRoles {
         let sender: address;
         let owner_role_ref: &mut R#Self.Owner;
         let owner_role_immut_ref: &R#Self.Owner;
-
         sender = get_txn_sender();
         owner_role_ref = borrow_global<Owner>(move(sender));
         owner_role_immut_ref = freeze(move(owner_role_ref));
-
         return move(owner_role_immut_ref);
     }
 
@@ -75,11 +65,9 @@ module SpringTokenRoles {
         let sender: address;
         let role_ref: &mut R#Self.T;
         let role_immut_ref: &R#Self.T;
-
         sender = get_txn_sender();
         role_ref = borrow_global<T>(move(sender));
         role_immut_ref = freeze(move(role_ref));
-
         return move(role_immut_ref);
     }
 
@@ -114,16 +102,12 @@ module SpringTokenRoles {
     }
 }
 
-
 module SpringToken {
-    // module for SpringToken.
-    // will import SprinTokenRoles.
 
     import 0x0.LibraAccount;
     import 0x0.LibraCoin;
     import Transaction.SpringTokenRoles;
 
-    // stores an account's total balance
     resource T {
         value: u64,
     }
@@ -140,24 +124,19 @@ module SpringToken {
         return;
     }
 
-    // Mint new SpringTokens.
-    // Reverts if not a minter role.
+    // Mint new SpringTokens. Reverts if not a minter role.
     public mint(value: u64, role: &R#SpringTokenRoles.T): R#Self.T {
         SpringTokenRoles.require_minter(move(role));
         return T{value: move(value)};
     }
 
-    // Returns an account's SpringToken balance.
-    // Reverts if an initial SpringToken hasn't been published.
     public balance(): u64 {
         let sender: address;
         let token_ref: &mut R#Self.T;
         let token_value: u64;
-
         sender = get_txn_sender();
         token_ref = borrow_global<T>(move(sender));
         token_value = *(&move(token_ref).value);
-
         return move(token_value);
     }
 
@@ -166,18 +145,13 @@ module SpringToken {
         let payee_token_ref: &mut R#Self.T;
         let payee_token_value: u64;
         let to_deposit_value: u64;
-
         SpringTokenRoles.require_not_blacklisted(move(role));
-
         payee_token_ref = borrow_global<T>(move(payee));
         payee_token_value = *(&copy(payee_token_ref).value);
-
         // Unpack and destroy to_deposit tokens
         T{ value: to_deposit_value } = move(to_deposit);
-
         // Increase the payees balance with the destroyed token amount
         *(&mut move(payee_token_ref).value) = move(payee_token_value) + move(to_deposit_value);
-
         return;
     }
 
@@ -186,54 +160,21 @@ module SpringToken {
         let sender: address;
         let sender_token_ref: &mut R#Self.T;
         let value: u64;
-
         SpringTokenRoles.require_not_blacklisted(move(role));
-
         sender = get_txn_sender();
         sender_token_ref = borrow_global<T>(move(sender));
         value = *(&copy(sender_token_ref).value);
-
         assert(copy(value) >= copy(amount), 1);
-
         *(&mut move(sender_token_ref).value) = move(value) - copy(amount);
         return T{ value: move(amount) };
     }
 
     public pay_from_sender(payee: address, amount: u64) {
-         let to_pay: R#Self.T;
-         let role: &R#SpringTokenRoles.T;
-
-         role = SpringTokenRoles.borrow_role();
-         to_pay = Self.withdraw(move(amount), copy(role));
-         Self.deposit(move(payee), move(to_pay), move(role));
-         return;
-    }
-
-    public sell_token(token_amount: u64, price: u64) {
-        let token: R#Self.T;
+        let to_pay: R#Self.T;
         let role: &R#SpringTokenRoles.T;
         role = SpringTokenRoles.borrow_role();
-        token = Self.withdraw(move(token_amount), move(role));
-        move_to_sender<Order>(Order { token: move(token), price: move(price)});
-        return;
-    }
-
-    public buy_token(order_address: address) {
-        let sender: address;
-        let order: R#Self.Order;
-        let token: R#Self.T;
-        let price: u64;
-        let role: &R#SpringTokenRoles.T;
-
-        sender = get_txn_sender();
-        role = SpringTokenRoles.borrow_role();
-
-        order = move_from<Order>(copy(order_address));
-        Order { token:token, price:price } = move(order);
-
-        LibraAccount.pay_from_sender(move(order_address), move(price));
-
-        Self.deposit(move(sender), move(token), move(role));
+        to_pay = Self.withdraw(move(amount), copy(role));
+        Self.deposit(move(payee), move(to_pay), move(role));
         return;
     }
 }
@@ -247,15 +188,10 @@ main() {
     let sender: address;
     let owner_role: &R#SpringTokenRoles.Owner;
     let role: &R#SpringTokenRoles.T;
-
     sender = get_txn_sender();
-
     SpringTokenRoles.publish();
-
     owner_role = SpringTokenRoles.borrow_owner_role();
-
     SpringTokenRoles.grant_minter_role(copy(sender), move(owner_role));
-
     SpringToken.publish();
     return;
 }
